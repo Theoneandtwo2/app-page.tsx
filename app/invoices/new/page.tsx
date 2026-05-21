@@ -1,17 +1,22 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 
 const projects = ["2757 Nelson", "2767 Nelson", "6004 Balsam", "5914 Woodley"];
 
 export default function NewInvoicePage() {
   const [submitting, setSubmitting] = useState(false);
+  const [trackingUrl, setTrackingUrl] = useState("");
 
   async function submitInvoice(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setSubmitting(true);
+    setTrackingUrl("");
 
-    const formData = new FormData(e.currentTarget);
+    const form = e.currentTarget;
+    const formData = new FormData(form);
+
     const response = await fetch("/api/invoices", {
       method: "POST",
       body: formData,
@@ -19,17 +24,19 @@ export default function NewInvoicePage() {
 
     setSubmitting(false);
 
+    const data = await response.json().catch(() => null);
+
     if (!response.ok) {
-      const data = await response.json().catch(() => null);
       alert(data?.error || "Invoice submission failed.");
       return;
     }
 
-    alert(
-      "Invoice submitted for pending review. A private tracking link will be available for this invoice."
-    );
+    if (data?.trackingUrl) {
+      setTrackingUrl(data.trackingUrl);
+    }
 
-    e.currentTarget.reset();
+    alert("Invoice submitted for pending review.");
+    form.reset();
   }
 
   return (
@@ -48,6 +55,23 @@ export default function NewInvoicePage() {
           Submit your invoice securely. Gol Homes will review it and update the
           invoice status after review.
         </p>
+
+        {trackingUrl && (
+          <section className="mt-5 rounded-xl border border-green-200 bg-green-50 p-4">
+            <p className="font-semibold text-green-800">
+              Invoice submitted successfully.
+            </p>
+            <p className="text-sm text-green-700 mt-1">
+              Save this private tracking link to check the invoice status:
+            </p>
+            <Link
+              href={trackingUrl}
+              className="inline-block mt-3 rounded-lg bg-gol-green text-white px-4 py-2"
+            >
+              View Invoice Status
+            </Link>
+          </section>
+        )}
 
         <label className="block mt-5 text-sm font-medium">Project</label>
         <select
