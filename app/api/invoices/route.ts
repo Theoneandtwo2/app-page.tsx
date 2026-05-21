@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
+import { Resend } from "resend";
 import crypto from "crypto";
-//
+
 const invoiceSchema = z.object({
   projectName: z.string().min(1),
   submitterEmail: z.string().email(),
@@ -30,9 +31,16 @@ function createServiceClient() {
   });
 }
 
+function getAppUrl(request: Request) {
+  const url = new URL(request.url);
+  return `${url.protocol}//${url.host}`;
+}
+
 export async function POST(request: Request) {
   try {
     const supabase = createServiceClient();
+    const resend = new Resend(process.env.RESEND_API_KEY);
+
     const formData = await request.formData();
 
     const parsed = invoiceSchema.safeParse({
@@ -54,8 +62,12 @@ export async function POST(request: Request) {
     }
 
     const file = formData.get("invoiceFile");
+
     if (!(file instanceof File)) {
-      return NextResponse.json({ error: "Invoice attachment required" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Invoice attachment required" },
+        { status: 400 }
+      );
     }
 
     const safeProject = parsed.data.projectName.replace(/[^a-z0-9_-]/gi, "_");
@@ -104,6 +116,36 @@ export async function POST(request: Request) {
         { error: `Invoice insert failed: ${invoiceError.message}` },
         { status: 500 }
       );
+    }
+
+    const appUrl = getAppUrl(request);
+    const trackingUrl = `${appUrl}/invoice-status/${trackingToken}`;
+
+    if (process.env.RESEND_API_KEY) {
+      await resend.emails.send({
+        from: "Gol Homes Portal <onboarding@resend.dev>",
+        to: parsed.data.submitterEmail,
+        subject: "Gol Homes — Invoice Received",
+        html: `
+          <div style="font-family: Arial, sans-serif; line-height: 1.5;">
+            <h2>Invoice received</h2>
+            <p>Hi ${parsed.data.contactName},</p>
+            <p>Gol Homes has received your invoice submission.</p>
+            <p><strong>Status:</strong> Pending Review</p>
+            <p><strong>Project:</strong> ${parsed.data.projectName}</p>
+            <p><strong>Invoice Number:</strong> ${parsed.data.invoiceNumber || "N/A"}</p>
+            <p><strong>Amount:</strong> $${parsed.data.invoiceAmount}</p>
+            <p>You can track the invoice status using this private link:</p>
+            <p>
+              <a href="${trackingUrl}" target="_blank">
+                View Invoice Status
+              </a>
+            </p>
+            <p>Please save this email for your records.</p>
+            <p>Gol Homes Development LLC</p>
+          </div>
+        `,
+      });
     }
 
     return NextResponse.json({
