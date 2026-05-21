@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { createClient as createSupabaseServiceClient } from "@supabase/supabase-js";
-import { createClient as createSupabaseServerClient } from "@/lib/supabase/server";
+import { createClient } from "@supabase/supabase-js";
+import crypto from "crypto";
 
 const invoiceSchema = z.object({
   projectName: z.string().min(1),
+  submitterEmail: z.string().email(),
   companyName: z.string().min(1),
   contactName: z.string().min(1),
   invoiceAmount: z.string().min(1),
@@ -21,7 +22,7 @@ function createServiceClient() {
     throw new Error("Missing Supabase server environment variables");
   }
 
-  return createSupabaseServiceClient(supabaseUrl, serviceRoleKey, {
+  return createClient(supabaseUrl, serviceRoleKey, {
     auth: {
       persistSession: false,
       autoRefreshToken: false,
@@ -31,45 +32,12 @@ function createServiceClient() {
 
 export async function POST(request: Request) {
   try {
-    const authClient = await createSupabaseServerClient();
-
-    const {
-      data: { user },
-    } = await authClient.auth.getUser();
-
-    if (!user || !user.email) {
-      return NextResponse.json(
-        { error: "You must be logged in to submit an invoice." },
-        { status: 401 }
-      );
-    }
-
     const supabase = createServiceClient();
-
-    const { data: profile, error: profileError } = await supabase
-      .from("profiles")
-      .select("email, role, is_active, company_name, contact_name")
-      .eq("email", user.email)
-      .single();
-
-    if (profileError || !profile || profile.is_active !== true) {
-      return NextResponse.json(
-        { error: "This email is not approved for portal access." },
-        { status: 403 }
-      );
-    }
-
-    if (!["admin", "subcontractor"].includes(profile.role)) {
-      return NextResponse.json(
-        { error: "This account is not allowed to submit invoices." },
-        { status: 403 }
-      );
-    }
-
     const formData = await request.formData();
 
     const parsed = invoiceSchema.safeParse({
       projectName: formData.get("projectName"),
+      submitterEmail: formData.get("submitterEmail"),
       companyName: formData.get("companyName"),
       contactName: formData.get("contactName"),
       invoiceAmount: formData.get("invoiceAmount"),
@@ -93,6 +61,7 @@ export async function POST(request: Request) {
     const safeProject = parsed.data.projectName.replace(/[^a-z0-9_-]/gi, "_");
     const safeCompany = parsed.data.companyName.replace(/[^a-z0-9_-]/gi, "_");
     const filePath = `invoices/${safeProject}/${safeCompany}/${Date.now()}-${file.name}`;
+    const trackingToken = crypto.randomBytes(32).toString("hex");
 
     const { error: uploadError } = await supabase.storage
       .from("portal-files")
@@ -121,8 +90,11 @@ export async function POST(request: Request) {
         lien_waiver_accepted: true,
         invoice_status: "pending_review",
         file_path: filePath,
-        submitted_by_email: user.email,
-        submitted_by_user_id: user.id,
+        submitter_email: parsed.data.submitterEmail,
+        tracking_token: trackingToken,
+        original_file_name: file.name,
+        file_size: file.size,
+        uploaded_at: new Date().toISOString(),
       })
       .select()
       .single();
@@ -134,7 +106,11 @@ export async function POST(request: Request) {
       );
     }
 
-    return NextResponse.json({ ok: true, invoice });
+    return NextResponse.json({
+      ok: true,
+      invoice,
+      trackingUrl: `/invoice-status/${trackingToken}`,
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown server error";
     return NextResponse.json({ error: message }, { status: 500 });
