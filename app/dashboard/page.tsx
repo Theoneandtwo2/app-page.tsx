@@ -79,6 +79,7 @@ const { data: profile } = await supabase
                 <th className="p-3">Project</th>
                 <th className="p-3">Amount</th>
                 <th className="p-3">Status</th>
+                  <th className="p-3">Actions</th>
               </tr>
             </thead>
 
@@ -94,12 +95,20 @@ const { data: profile } = await supabase
                       {invoice.invoice_status}
                     </span>
                   </td>
+                  <td className="p-3">
+                    <Link
+                      href={`/dashboard/invoices/${invoice.id}`}
+                      className="rounded-lg border px-3 py-1 text-sm hover:bg-gray-50"
+                    >
+                      Review
+                    </Link>
+                  </td>
                 </tr>
               ))}
 
               {(!invoices || invoices.length === 0) && (
                 <tr>
-                  <td className="p-6 text-gray-500" colSpan={5}>
+                  <td className="p-6 text-gray-500" colSpan={6}>
                     No invoices yet.
                   </td>
                 </tr>
