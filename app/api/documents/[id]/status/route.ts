@@ -12,29 +12,29 @@ function createServiceClient() {
 
 export async function PATCH(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
   // Verify admin session
   const supabase = await createServerClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-
   const adminEmail = process.env.ADMIN_EMAIL;
+
   if (!user || !adminEmail || user.email !== adminEmail) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const body = await request.json();
   const { status, admin_notes } = body;
-
   const validStatuses = ["pending_review", "approved", "rejected", "missing_info"];
+
   if (!validStatuses.includes(status)) {
     return NextResponse.json({ error: "Invalid status" }, { status: 400 });
   }
 
   const service = createServiceClient();
-
   const { data, error } = await service
     .from("documents")
     .update({
@@ -43,7 +43,7 @@ export async function PATCH(
       reviewed_by: user.email,
       updated_at: new Date().toISOString(),
     })
-    .eq("id", params.id)
+    .eq("id", id)
     .select()
     .single();
 
