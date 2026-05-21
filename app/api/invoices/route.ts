@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { createClient } from "@supabase/supabase-js";
+import { createClient as createSupabaseServiceClient } from "@supabase/supabase-js";
+import { createClient as createSupabaseServerClient } from "@/lib/supabase/server";
 
 const invoiceSchema = z.object({
   projectName: z.string().min(1),
@@ -20,7 +21,7 @@ function createServiceClient() {
     throw new Error("Missing Supabase server environment variables");
   }
 
-  return createClient(supabaseUrl, serviceRoleKey, {
+  return createSupabaseServiceClient(supabaseUrl, serviceRoleKey, {
     auth: {
       persistSession: false,
       autoRefreshToken: false,
@@ -30,7 +31,41 @@ function createServiceClient() {
 
 export async function POST(request: Request) {
   try {
+    const authClient = await createSupabaseServerClient();
+
+    const {
+      data: { user },
+    } = await authClient.auth.getUser();
+
+    if (!user || !user.email) {
+      return NextResponse.json(
+        { error: "You must be logged in to submit an invoice." },
+        { status: 401 }
+      );
+    }
+
     const supabase = createServiceClient();
+
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("email, role, is_active, company_name, contact_name")
+      .eq("email", user.email)
+      .single();
+
+    if (profileError || !profile || profile.is_active !== true) {
+      return NextResponse.json(
+        { error: "This email is not approved for portal access." },
+        { status: 403 }
+      );
+    }
+
+    if (!["admin", "subcontractor"].includes(profile.role)) {
+      return NextResponse.json(
+        { error: "This account is not allowed to submit invoices." },
+        { status: 403 }
+      );
+    }
+
     const formData = await request.formData();
 
     const parsed = invoiceSchema.safeParse({
@@ -86,6 +121,8 @@ export async function POST(request: Request) {
         lien_waiver_accepted: true,
         invoice_status: "pending_review",
         file_path: filePath,
+        submitted_by_email: user.email,
+        submitted_by_user_id: user.id,
       })
       .select()
       .single();
