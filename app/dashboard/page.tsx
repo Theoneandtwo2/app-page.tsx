@@ -13,13 +13,9 @@ export default async function DashboardPage() {
     redirect("/login");
   }
 
-const { data: profile } = await supabase
-  .from("profiles")
-  .select("role, email, is_active")
-  .eq("email", user.email)
-  .single();
+const adminEmail = process.env.ADMIN_EMAIL;
 
-  if (!profile || profile.role !== "admin" || profile.is_active !== true) {
+  if (!adminEmail || user.email !== adminEmail) {
     return (
       <main className="min-h-screen flex items-center justify-center p-6">
         <section className="max-w-lg w-full bg-white border rounded-2xl shadow-sm p-8">
