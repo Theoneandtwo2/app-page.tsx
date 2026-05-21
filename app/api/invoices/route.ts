@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
 import crypto from "crypto";
-
+//
 const invoiceSchema = z.object({
   projectName: z.string().min(1),
   submitterEmail: z.string().email(),
