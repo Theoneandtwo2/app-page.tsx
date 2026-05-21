@@ -10,10 +10,13 @@ function createServiceClient() {
   });
 }
 
-export async function PATCH(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
+type RouteProps = {
+  params: Promise<{
+    id: string;
+  }>;
+};
+
+export async function PATCH(request: Request, { params }: RouteProps) {
   const { id } = await params;
   // Verify admin session
   const supabase = await createServerClient();
