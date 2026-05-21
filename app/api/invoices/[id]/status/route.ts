@@ -35,6 +35,18 @@ type RouteProps = {
   }>;
 };
 
+async function getInvoiceStatusFromRequest(request: Request) {
+  const contentType = request.headers.get("content-type") || "";
+
+  if (contentType.includes("application/json")) {
+    const body = await request.json();
+    return body.invoiceStatus;
+  }
+
+  const formData = await request.formData();
+  return formData.get("invoiceStatus");
+}
+
 export async function POST(request: Request, { params }: RouteProps) {
   try {
     const { id } = await params;
@@ -67,8 +79,8 @@ export async function POST(request: Request, { params }: RouteProps) {
       );
     }
 
-    const body = await request.json();
-    const parsed = statusSchema.safeParse(body);
+    const invoiceStatus = await getInvoiceStatusFromRequest(request);
+    const parsed = statusSchema.safeParse({ invoiceStatus });
 
     if (!parsed.success) {
       return NextResponse.json(
@@ -77,26 +89,26 @@ export async function POST(request: Request, { params }: RouteProps) {
       );
     }
 
+    const now = new Date().toISOString();
+
     const updateValues: Record<string, string> = {
       invoice_status: parsed.data.invoiceStatus,
-      reviewed_at: new Date().toISOString(),
+      reviewed_at: now,
       reviewed_by: user.email,
     };
 
     if (parsed.data.invoiceStatus === "approved") {
-      updateValues.approved_at = new Date().toISOString();
+      updateValues.approved_at = now;
     }
 
     if (parsed.data.invoiceStatus === "paid") {
-      updateValues.paid_at = new Date().toISOString();
+      updateValues.paid_at = now;
     }
 
-    const { data: invoice, error } = await supabase
+    const { error } = await supabase
       .from("invoices")
       .update(updateValues)
-      .eq("id", id)
-      .select()
-      .single();
+      .eq("id", id);
 
     if (error) {
       return NextResponse.json(
@@ -105,7 +117,7 @@ export async function POST(request: Request, { params }: RouteProps) {
       );
     }
 
-    return NextResponse.json({ ok: true, invoice });
+    return NextResponse.redirect(new URL(`/dashboard/invoices/${id}`, request.url));
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown server error";
     return NextResponse.json({ error: message }, { status: 500 });
