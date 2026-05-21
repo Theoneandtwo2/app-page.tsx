@@ -1,18 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 const projects = ["2757 Nelson", "2767 Nelson", "6004 Balsam", "5914 Woodley"];
 
 export default function NewInvoicePage() {
+  const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
-  const [trackingUrl, setTrackingUrl] = useState("");
 
   async function submitInvoice(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setSubmitting(true);
-    setTrackingUrl("");
 
     const form = e.currentTarget;
     const formData = new FormData(form);
@@ -22,9 +21,9 @@ export default function NewInvoicePage() {
       body: formData,
     });
 
-    setSubmitting(false);
-
     const data = await response.json().catch(() => null);
+
+    setSubmitting(false);
 
     if (!response.ok) {
       alert(data?.error || "Invoice submission failed.");
@@ -32,7 +31,8 @@ export default function NewInvoicePage() {
     }
 
     if (data?.trackingUrl) {
-      setTrackingUrl(data.trackingUrl);
+      router.push(data.trackingUrl);
+      return;
     }
 
     alert("Invoice submitted for pending review.");
@@ -52,26 +52,9 @@ export default function NewInvoicePage() {
         <h1 className="text-2xl font-bold mt-2">Submit Invoice</h1>
 
         <p className="text-gray-600 mt-2">
-          Submit your invoice securely. Gol Homes will review it and update the
-          invoice status after review.
+          Submit your invoice securely. After submission, you will be taken to a
+          private status page. Please save that page link for your records.
         </p>
-
-        {trackingUrl && (
-          <section className="mt-5 rounded-xl border border-green-200 bg-green-50 p-4">
-            <p className="font-semibold text-green-800">
-              Invoice submitted successfully.
-            </p>
-            <p className="text-sm text-green-700 mt-1">
-              Save this private tracking link to check the invoice status:
-            </p>
-            <Link
-              href={trackingUrl}
-              className="inline-block mt-3 rounded-lg bg-gol-green text-white px-4 py-2"
-            >
-              View Invoice Status
-            </Link>
-          </section>
-        )}
 
         <label className="block mt-5 text-sm font-medium">Project</label>
         <select
