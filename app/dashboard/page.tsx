@@ -13,13 +13,13 @@ export default async function DashboardPage() {
     redirect("/login");
   }
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role, email")
-    .eq("auth_user_id", user.id)
-    .single();
+const { data: profile } = await supabase
+  .from("profiles")
+  .select("role, email, is_active")
+  .eq("email", user.email)
+  .single();
 
-  if (!profile || profile.role !== "admin") {
+  if (!profile || profile.role !== "admin" || profile.is_active !== true) {
     return (
       <main className="min-h-screen flex items-center justify-center p-6">
         <section className="max-w-lg w-full bg-white border rounded-2xl shadow-sm p-8">
