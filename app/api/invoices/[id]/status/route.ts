@@ -91,7 +91,7 @@ const adminEmail = process.env.ADMIN_EMAIL;
     const updateValues: Record<string, string> = {
       invoice_status: parsed.data.invoiceStatus,
       reviewed_at: now,
-      reviewed_by: user.email,
+      reviewed_by_email: user.email,
     };
 
     if (parsed.data.invoiceStatus === "approved") {
