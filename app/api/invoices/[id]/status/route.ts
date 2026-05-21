@@ -66,13 +66,10 @@ export async function POST(request: Request, { params }: RouteProps) {
 
     const supabase = createServiceClient();
 
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("role, is_active")
-      .eq("email", user.email)
-      .single();
 
-    if (!profile || profile.role !== "admin" || profile.is_active !== true) {
+const adminEmail = process.env.ADMIN_EMAIL;
+
+    if (!adminEmail || user.email !== adminEmail) {
       return NextResponse.json(
         { error: "Admin access required." },
         { status: 403 }
