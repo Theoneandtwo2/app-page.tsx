@@ -12,27 +12,27 @@ function createServiceClient() {
 
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
   // Admin only
   const supabase = await createServerClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-
   const adminEmail = process.env.ADMIN_EMAIL;
+
   if (!user || !adminEmail || user.email !== adminEmail) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const { searchParams } = new URL(request.url);
   const field = searchParams.get("field");
-
   const service = createServiceClient();
   const { data: doc, error } = await service
     .from("documents")
     .select("file_paths")
-    .eq("id", params.id)
+    .eq("id", id)
     .single();
 
   if (error || !doc) {
@@ -63,5 +63,5 @@ export async function GET(
     );
   }
 
-  return NextResponse.redirect(signedUrl.signedUrl);
+  return NextResponse.json({ url: signedUrl.signedUrl });
 }
