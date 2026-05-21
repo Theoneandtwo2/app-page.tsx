@@ -22,13 +22,6 @@ export default function HomePage() {
           >
             Submit Invoice
           </Link>
-
-          <Link
-            className="px-4 py-2 rounded-lg border"
-            href="/login"
-          >
-            Admin Login
-          </Link>
         </div>
       </section>
     </main>
