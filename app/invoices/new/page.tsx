@@ -1,116 +1,138 @@
-import Link from "next/link";
-import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+"use client";
 
-export default async function MyInvoicesPage() {
-  const supabase = await createClient();
+import { useState } from "react";
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+const projects = ["2757 Nelson", "2767 Nelson", "6004 Balsam", "5914 Woodley"];
 
-  if (!user || !user.email) {
-    redirect("/login");
-  }
+export default function NewInvoicePage() {
+  const [submitting, setSubmitting] = useState(false);
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("email, role, is_active, company_name, contact_name")
-    .eq("email", user.email)
-    .single();
+  async function submitInvoice(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setSubmitting(true);
 
-  if (!profile || profile.is_active !== true) {
-    return (
-      <main className="min-h-screen flex items-center justify-center p-6">
-        <section className="max-w-lg w-full bg-white border rounded-2xl shadow-sm p-8">
-          <p className="text-sm uppercase tracking-wide text-red-600 font-semibold">
-            Access not approved
-          </p>
-          <h1 className="text-2xl font-bold mt-2">Account not approved</h1>
-          <p className="text-gray-600 mt-3">
-            This email is not currently approved for portal access. Please contact Gol Homes.
-          </p>
-          <Link
-            href="/"
-            className="inline-block mt-6 rounded-lg bg-gol-green text-white px-4 py-2"
-          >
-            Back to portal
-          </Link>
-        </section>
-      </main>
+    const formData = new FormData(e.currentTarget);
+    const response = await fetch("/api/invoices", {
+      method: "POST",
+      body: formData,
+    });
+
+    setSubmitting(false);
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => null);
+      alert(data?.error || "Invoice submission failed.");
+      return;
+    }
+
+    alert(
+      "Invoice submitted for pending review. A private tracking link will be available for this invoice."
     );
-  }
 
-  const { data: invoices } = await supabase
-    .from("invoices")
-    .select(
-      "id, project_name, invoice_amount, invoice_number, invoice_status, invoice_date, submitted_at"
-    )
-    .eq("submitted_by_email", user.email)
-    .order("submitted_at", { ascending: false });
+    e.currentTarget.reset();
+  }
 
   return (
     <main className="min-h-screen p-6">
-      <div className="max-w-5xl mx-auto">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <p className="text-sm uppercase tracking-wide text-gol-green font-semibold">
-              Subcontractor
-            </p>
-            <h1 className="text-3xl font-bold">My Invoices</h1>
-            <p className="text-gray-600 mt-2">
-              View invoices submitted from your approved portal account.
-            </p>
-          </div>
+      <form
+        onSubmit={submitInvoice}
+        className="max-w-2xl mx-auto bg-white border rounded-2xl p-8 shadow-sm"
+      >
+        <p className="text-sm uppercase tracking-wide text-gol-green font-semibold">
+          Gol Homes Development LLC
+        </p>
 
-          <Link
-            href="/invoices/new"
-            className="rounded-lg bg-gol-green text-white px-4 py-2"
-          >
-            Submit Invoice
-          </Link>
-        </div>
+        <h1 className="text-2xl font-bold mt-2">Submit Invoice</h1>
 
-        <section className="bg-white border rounded-2xl mt-6 overflow-hidden">
-          <div className="p-4 border-b font-semibold">Invoice Status</div>
+        <p className="text-gray-600 mt-2">
+          Submit your invoice securely. Gol Homes will review it and update the
+          invoice status after review.
+        </p>
 
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 text-left">
-              <tr>
-                <th className="p-3">Invoice #</th>
-                <th className="p-3">Project</th>
-                <th className="p-3">Amount</th>
-                <th className="p-3">Date</th>
-                <th className="p-3">Status</th>
-              </tr>
-            </thead>
+        <label className="block mt-5 text-sm font-medium">Project</label>
+        <select
+          name="projectName"
+          required
+          className="mt-2 w-full border rounded-lg px-3 py-2"
+        >
+          <option value="">Choose project</option>
+          {projects.map((p) => (
+            <option key={p}>{p}</option>
+          ))}
+        </select>
 
-            <tbody>
-              {(invoices || []).map((invoice) => (
-                <tr key={invoice.id} className="border-t">
-                  <td className="p-3">{invoice.invoice_number || "—"}</td>
-                  <td className="p-3">{invoice.project_name}</td>
-                  <td className="p-3">${invoice.invoice_amount}</td>
-                  <td className="p-3">{invoice.invoice_date}</td>
-                  <td className="p-3">
-                    <span className="rounded-full bg-yellow-100 text-yellow-800 px-3 py-1 text-xs">
-                      {invoice.invoice_status}
-                    </span>
-                  </td>
-                </tr>
-              ))}
+        <label className="block mt-4 text-sm font-medium">Email</label>
+        <input
+          name="submitterEmail"
+          required
+          type="email"
+          className="mt-2 w-full border rounded-lg px-3 py-2"
+          placeholder="you@example.com"
+        />
 
-              {(!invoices || invoices.length === 0) && (
-                <tr>
-                  <td className="p-6 text-gray-500" colSpan={5}>
-                    No invoices submitted from this account yet.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </section>
-      </div>
+        <label className="block mt-4 text-sm font-medium">Company Name</label>
+        <input
+          name="companyName"
+          required
+          className="mt-2 w-full border rounded-lg px-3 py-2"
+        />
+
+        <label className="block mt-4 text-sm font-medium">Your Name</label>
+        <input
+          name="contactName"
+          required
+          className="mt-2 w-full border rounded-lg px-3 py-2"
+        />
+
+        <label className="block mt-4 text-sm font-medium">Invoice Amount</label>
+        <input
+          name="invoiceAmount"
+          required
+          type="number"
+          step="0.01"
+          className="mt-2 w-full border rounded-lg px-3 py-2"
+        />
+
+        <label className="block mt-4 text-sm font-medium">Invoice Number</label>
+        <input
+          name="invoiceNumber"
+          className="mt-2 w-full border rounded-lg px-3 py-2"
+        />
+
+        <label className="block mt-4 text-sm font-medium">Invoice Date</label>
+        <input
+          name="invoiceDate"
+          required
+          type="date"
+          className="mt-2 w-full border rounded-lg px-3 py-2"
+        />
+
+        <label className="block mt-4 text-sm font-medium">
+          Invoice Attachment
+        </label>
+        <input
+          name="invoiceFile"
+          required
+          type="file"
+          accept=".pdf,image/*"
+          className="mt-2 w-full border rounded-lg px-3 py-2"
+        />
+
+        <label className="flex gap-3 mt-5 text-sm">
+          <input name="lienWaiverAccepted" required type="checkbox" />
+          <span>
+            I waive all lien rights for this invoice amount and any prior
+            payments received.
+          </span>
+        </label>
+
+        <button
+          disabled={submitting}
+          className="mt-6 rounded-lg bg-gol-green text-white py-2 px-4 font-semibold"
+        >
+          {submitting ? "Submitting..." : "Submit Invoice"}
+        </button>
+      </form>
     </main>
   );
 }
