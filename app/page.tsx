@@ -1,116 +1,36 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
 
-export default async function DashboardPage() {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    redirect("/login");
-  }
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role, email")
-    .eq("auth_user_id", user.id)
-    .single();
-
-  if (!profile || profile.role !== "admin") {
-    return (
-      <main className="min-h-screen flex items-center justify-center p-6">
-        <section className="max-w-lg w-full bg-white border rounded-2xl shadow-sm p-8">
-          <p className="text-sm uppercase tracking-wide text-red-600 font-semibold">
-            Access denied
-          </p>
-
-          <h1 className="text-2xl font-bold mt-2">Admin access required</h1>
-
-          <p className="text-gray-600 mt-3">
-            You are logged in, but this account is not approved as a Gol Homes admin.
-          </p>
-
-          <Link
-            href="/"
-            className="inline-block mt-6 rounded-lg bg-gol-green text-white px-4 py-2"
-          >
-            Back to portal
-          </Link>
-        </section>
-      </main>
-    );
-  }
-
-  const { data: invoices } = await supabase
-    .from("invoices")
-    .select(
-      "id, company_name, project_name, invoice_amount, invoice_number, invoice_status, submitted_at"
-    )
-    .order("submitted_at", { ascending: false })
-    .limit(25);
-
+export default function HomePage() {
   return (
-    <main className="min-h-screen p-6">
-      <div className="max-w-6xl mx-auto">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <p className="text-sm uppercase tracking-wide text-gol-green font-semibold">
-              Admin
-            </p>
-            <h1 className="text-3xl font-bold">Invoice Review Dashboard</h1>
-          </div>
+    <main className="min-h-screen flex items-center justify-center p-6">
+      <section className="max-w-2xl w-full bg-white rounded-2xl shadow-sm border p-8">
+        <p className="text-sm uppercase tracking-wide text-gol-green font-semibold">
+          Gol Homes Development LLC
+        </p>
+
+        <h1 className="text-3xl font-bold mt-3">Subcontractor Portal</h1>
+
+        <p className="text-gray-600 mt-3">
+          Submit invoices securely and receive a private tracking link for status updates.
+          Gol Homes reviews submissions through a protected admin dashboard.
+        </p>
+
+        <div className="flex flex-wrap gap-3 mt-6">
+          <Link
+            className="px-4 py-2 rounded-lg bg-gol-green text-white"
+            href="/invoices/new"
+          >
+            Submit Invoice
+          </Link>
 
           <Link
-            href="/invoices/new"
-            className="rounded-lg bg-gol-green text-white px-4 py-2"
+            className="px-4 py-2 rounded-lg border"
+            href="/login"
           >
-            Submit Test Invoice
+            Admin Login
           </Link>
         </div>
-
-        <section className="bg-white border rounded-2xl mt-6 overflow-hidden">
-          <div className="p-4 border-b font-semibold">Recent Invoices</div>
-
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 text-left">
-              <tr>
-                <th className="p-3">Invoice #</th>
-                <th className="p-3">Company</th>
-                <th className="p-3">Project</th>
-                <th className="p-3">Amount</th>
-                <th className="p-3">Status</th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {(invoices || []).map((invoice) => (
-                <tr key={invoice.id} className="border-t">
-                  <td className="p-3">{invoice.invoice_number || "—"}</td>
-                  <td className="p-3">{invoice.company_name}</td>
-                  <td className="p-3">{invoice.project_name}</td>
-                  <td className="p-3">${invoice.invoice_amount}</td>
-                  <td className="p-3">
-                    <span className="rounded-full bg-yellow-100 text-yellow-800 px-3 py-1 text-xs">
-                      {invoice.invoice_status}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-
-              {(!invoices || invoices.length === 0) && (
-                <tr>
-                  <td className="p-6 text-gray-500" colSpan={5}>
-                    No invoices yet.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </section>
-      </div>
+      </section>
     </main>
   );
 }
