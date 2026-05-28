@@ -1,168 +1,185 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState } from "react";
+import Link from "next/link";
+import Image from "next/image";
+import ConfirmationCard from "@/components/ConfirmationCard";
 
 const DOC_FIELDS = [
-  { key: "w9File", label: "W-9", description: "IRS Form W-9 (PDF or image)" },
-  { key: "coiFile", label: "COI", description: "Certificate of Insurance (PDF)" },
-  { key: "einFile", label: "EIN Letter", description: "EIN Confirmation Letter from IRS (PDF)" },
-  { key: "licenseFile", label: "Business License", description: "State or local business license (PDF or image)" },
+  { key: "w9File", label: "W-9", required: true, description: "IRS Form W-9 (PDF or image)" },
+  { key: "coiFile", label: "COI", required: true, description: "Certificate of Insurance" },
+  { key: "einFile", label: "EIN Letter", required: false, description: "IRS EIN confirmation letter" },
+  { key: "licenseFile", label: "Business License", required: false, description: "State or local business license" },
 ];
 
 export default function SubmitDocumentsPage() {
-  const [status, setStatus] = useState<"idle" | "submitting" | "success" | "error">("idle");
-  const [trackingUrl, setTrackingUrl] = useState("");
-  const [copied, setCopied] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
-  const formRef = useRef<HTMLFormElement>(null);
+  const [success, setSuccess] = useState<{
+    trackingUrl: string;
+    statusPath: string;
+    submitterEmail: string;
+  } | null>(null);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    setStatus("submitting");
     setError("");
+    setSubmitting(true);
 
     const form = e.currentTarget;
-    const data = new FormData(form);
+    const fd = new FormData(form);
+    const submitterEmail = String(fd.get("submitterEmail") || "");
 
-    // Build documentTypes string from which files were attached
-    const docTypes: string[] = [];
+    const types: string[] = [];
     for (const { key, label } of DOC_FIELDS) {
-      const file = data.get(key) as File | null;
-      if (file && file.size > 0) docTypes.push(label);
+      const f = fd.get(key);
+      if (f instanceof File && f.size > 0) types.push(label);
     }
-    if (docTypes.length === 0) {
+    if (types.length === 0) {
       setError("Please attach at least one document.");
-      setStatus("idle");
+      setSubmitting(false);
       return;
     }
-    data.set("documentTypes", docTypes.join(", "));
+    fd.set("documentTypes", types.join(", "));
 
     try {
-      const res = await fetch("/api/documents", { method: "POST", body: data });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Submission failed");
-      setTrackingUrl(json.trackingUrl);
-      setStatus("success");
-    } catch (err: unknown) {
+      const res = await fetch("/api/documents", { method: "POST", body: fd });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || "Submission failed");
+
+      const statusPath: string = data?.trackingUrl || "/";
+      setSuccess({
+        trackingUrl: window.location.origin + statusPath,
+        statusPath,
+        submitterEmail,
+      });
+    } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
-      setStatus("error");
+    } finally {
+      setSubmitting(false);
     }
   }
 
-  function copyLink() {
-    const full = `${window.location.origin}${trackingUrl}`;
-    navigator.clipboard.writeText(full).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 3000);
-    });
-  }
-
-  if (status === "success") {
+  if (success) {
     return (
-      <main className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
-        <div className="bg-white rounded-2xl shadow-md p-8 max-w-md w-full text-center">
-          <div className="text-green-500 text-5xl mb-4">&#10003;</div>
-          <h1 className="text-2xl font-bold text-gray-800 mb-2">Documents Received</h1>
-          <p className="text-gray-600 mb-6">
-            Thank you! Gol Homes has received your supporting documents.
-            Use the link below to track review status.
-          </p>
-          <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 mb-4 text-left">
-            <p className="text-sm font-semibold text-yellow-800 mb-1">Save Your Tracking Link</p>
-            <p className="text-xs text-yellow-700 break-all">
-              {typeof window !== "undefined" ? `${window.location.origin}${trackingUrl}` : trackingUrl}
-            </p>
-          </div>
-          <button
-            onClick={copyLink}
-            className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl transition"
-          >
-            {copied ? "Copied!" : "Copy Tracking Link"}
-          </button>
-          <a
-            href={trackingUrl}
-            className="block mt-3 text-sm text-blue-600 underline"
-          >
-            View Status Now
-          </a>
-        </div>
-      </main>
+      <ConfirmationCard
+        title="Documents Submitted!"
+        submissionLabel="documents"
+        submitterEmail={success.submitterEmail}
+        trackingUrl={success.trackingUrl}
+        statusHref={success.statusPath}
+      />
     );
   }
 
   return (
-    <main className="min-h-screen bg-gray-50 flex items-start justify-center p-6">
-      <div className="bg-white rounded-2xl shadow-md p-8 max-w-xl w-full">
-        <h1 className="text-2xl font-bold text-gray-800 mb-1">Submit Supporting Documents</h1>
-        <p className="text-gray-500 text-sm mb-6">
-          Upload your W-9, COI, EIN letter, and/or business license. No account required.
-        </p>
-
-        <form ref={formRef} onSubmit={handleSubmit} className="space-y-5">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Company Name *</label>
-            <input
-              name="companyName"
-              required
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="ABC Contracting LLC"
-            />
+    <main className="min-h-screen px-4 py-8 sm:py-12">
+      <div className="max-w-2xl mx-auto">
+        <div className="flex items-center gap-3 mb-6">
+          <div className="w-10 h-10 rounded-xl bg-gol-dark flex items-center justify-center overflow-hidden flex-shrink-0">
+            <Image src="/gol-logo.png" alt="GOL" width={40} height={40} className="object-contain" />
           </div>
-
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Contact Name *</label>
-            <input
-              name="contactName"
-              required
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="John Smith"
-            />
+            <div className="text-2xs font-bold tracking-eyebrow uppercase text-gol-green">
+              Gol Homes Development LLC
+            </div>
+            <Link href="/" className="block text-[11px] text-gol-muted hover:text-gol-dark mt-0.5 transition-colors">
+              ← Back to portal
+            </Link>
           </div>
+        </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Email Address *</label>
-            <input
-              name="submitterEmail"
-              type="email"
-              required
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="you@company.com"
-            />
+        <form onSubmit={handleSubmit} className="bg-white border border-gol-border rounded-card shadow-card p-6 sm:p-8">
+          <div className="text-2xs font-bold tracking-eyebrow uppercase text-gol-green mb-1">
+            Supporting Documents
           </div>
+          <h1 className="text-2xl font-bold text-gol-dark mb-2">Submit Documents</h1>
+          <p className="text-sm text-gol-muted leading-relaxed mb-7">
+            Upload your compliance documents securely. After submission, you
+            will receive a private tracking link by email. No account required.
+          </p>
 
-          <div className="border-t border-gray-100 pt-4">
-            <p className="text-sm font-semibold text-gray-700 mb-3">Attach Documents (attach at least one)</p>
-            <div className="space-y-3">
-              {DOC_FIELDS.map(({ key, label, description }) => (
-                <div key={key} className="flex items-start gap-3 bg-gray-50 rounded-lg p-3">
-                  <div className="flex-1">
-                    <label className="block text-sm font-medium text-gray-700">{label}</label>
-                    <p className="text-xs text-gray-400 mb-1">{description}</p>
+          <div className="space-y-5">
+            <Field label="Email Address" required hint="Your tracking link will be sent here.">
+              <input name="submitterEmail" type="email" required placeholder="you@example.com" className="form-input" />
+            </Field>
+            <Field label="Company Name" required>
+              <input name="companyName" type="text" required className="form-input" placeholder="ABC Contracting LLC" />
+            </Field>
+            <Field label="Contact Name" required>
+              <input name="contactName" type="text" required className="form-input" placeholder="John Smith" />
+            </Field>
+
+            <div className="border-t border-gray-100 pt-5">
+              <p className="text-sm font-semibold text-gol-dark mb-3">
+                Attach Documents
+                <span className="ml-1 font-normal text-gol-muted text-[12px]">
+                  (W-9 and COI are required; others are optional)
+                </span>
+              </p>
+              <div className="space-y-3">
+                {DOC_FIELDS.map(({ key, label, description, required }) => (
+                  <div key={key} className="rounded-2xl border border-gol-border bg-gol-soft/40 p-3.5">
+                    <label className="block text-[13px] font-medium text-gol-dark">
+                      {label}
+                      {required ? (
+                        <span className="text-red-500 ml-0.5">*</span>
+                      ) : (
+                        <span className="ml-1 font-normal text-gol-muted text-[11px]">(optional)</span>
+                      )}
+                    </label>
+                    <p className="text-[11px] text-gol-muted mt-0.5 mb-1.5">{description}</p>
                     <input
                       name={key}
                       type="file"
                       accept=".pdf,.jpg,.jpeg,.png"
-                      className="text-sm text-gray-600 file:mr-2 file:py-1 file:px-3 file:rounded file:border-0 file:bg-blue-50 file:text-blue-700 file:text-xs file:font-medium hover:file:bg-blue-100"
+                      required={required}
+                      className="block w-full text-sm text-gray-700 border border-gol-border rounded-lg px-3 py-2 bg-white"
                     />
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
 
           {error && (
-            <p className="text-red-600 text-sm bg-red-50 border border-red-200 rounded-lg p-3">{error}</p>
+            <p className="mt-4 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+              {error}
+            </p>
           )}
 
           <button
             type="submit"
-            disabled={status === "submitting"}
-            className="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold rounded-xl transition"
+            disabled={submitting}
+            className="mt-6 w-full inline-flex items-center justify-center px-4 py-3 rounded-xl bg-gol-green text-white text-sm font-semibold hover:bg-gol-green-dark transition-colors disabled:opacity-60 focus-ring"
           >
-            {status === "submitting" ? "Submitting..." : "Submit Documents"}
+            {submitting ? "Submitting..." : "Submit Documents"}
           </button>
         </form>
       </div>
-    </main>
+</main>
+  );
+}
+
+function Field({
+  label,
+  required,
+  hint,
+  children,
+}: {
+  label: string;
+  required?: boolean;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <label className="block text-[13px] font-medium text-gol-dark mb-1.5">
+        {label}
+        {required && <span className="text-red-500 ml-0.5">*</span>}
+      </label>
+      {children}
+      {hint && <p className="mt-1 text-[11px] text-gol-muted">{hint}</p>}
+    </div>
   );
 }

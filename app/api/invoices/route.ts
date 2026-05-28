@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
-import { Resend } from "resend";
 import crypto from "crypto";
+import { sendEmail } from "@/lib/email/send";
+import { invoiceReceivedTemplate } from "@/lib/email/templates";
 
 const invoiceSchema = z.object({
   projectName: z.string().min(1),
@@ -18,16 +19,11 @@ const invoiceSchema = z.object({
 function createServiceClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
   if (!supabaseUrl || !serviceRoleKey) {
     throw new Error("Missing Supabase server environment variables");
   }
-
   return createClient(supabaseUrl, serviceRoleKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-    },
+    auth: { persistSession: false, autoRefreshToken: false },
   });
 }
 
@@ -39,8 +35,6 @@ function getAppUrl(request: Request) {
 export async function POST(request: Request) {
   try {
     const supabase = createServiceClient();
-    const resend = new Resend(process.env.RESEND_API_KEY);
-
     const formData = await request.formData();
 
     const parsed = invoiceSchema.safeParse({
@@ -62,12 +56,8 @@ export async function POST(request: Request) {
     }
 
     const file = formData.get("invoiceFile");
-
     if (!(file instanceof File)) {
-      return NextResponse.json(
-        { error: "Invoice attachment required" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Invoice attachment required" }, { status: 400 });
     }
 
     const safeProject = parsed.data.projectName.replace(/[^a-z0-9_-]/gi, "_");
@@ -106,12 +96,13 @@ export async function POST(request: Request) {
         tracking_token: trackingToken,
         original_file_name: file.name,
         file_size: file.size,
-        uploaded_at: new Date().toISOString(),
+        submitted_at: new Date().toISOString(),
       })
       .select()
       .single();
 
     if (invoiceError) {
+      await supabase.storage.from("portal-files").remove([filePath]).catch(() => {});
       return NextResponse.json(
         { error: `Invoice insert failed: ${invoiceError.message}` },
         { status: 500 }
@@ -121,32 +112,18 @@ export async function POST(request: Request) {
     const appUrl = getAppUrl(request);
     const trackingUrl = `${appUrl}/invoice-status/${trackingToken}`;
 
-    if (process.env.RESEND_API_KEY) {
-      await resend.emails.send({
-        from: "Gol Homes Portal <onboarding@resend.dev>",
-        to: parsed.data.submitterEmail,
-        subject: "Gol Homes — Invoice Received",
-        html: `
-          <div style="font-family: Arial, sans-serif; line-height: 1.5;">
-            <h2>Invoice received</h2>
-            <p>Hi ${parsed.data.contactName},</p>
-            <p>Gol Homes has received your invoice submission.</p>
-            <p><strong>Status:</strong> Pending Review</p>
-            <p><strong>Project:</strong> ${parsed.data.projectName}</p>
-            <p><strong>Invoice Number:</strong> ${parsed.data.invoiceNumber || "N/A"}</p>
-            <p><strong>Amount:</strong> $${parsed.data.invoiceAmount}</p>
-            <p>You can track the invoice status using this private link:</p>
-            <p>
-              <a href="${trackingUrl}" target="_blank">
-                View Invoice Status
-              </a>
-            </p>
-            <p>Please save this email for your records.</p>
-            <p>Gol Homes Development LLC</p>
-          </div>
-        `,
-      });
-    }
+    const tpl = invoiceReceivedTemplate({
+      contactName: parsed.data.contactName,
+      projectName: parsed.data.projectName,
+      invoiceNumber: parsed.data.invoiceNumber || null,
+      invoiceAmount: parsed.data.invoiceAmount,
+      trackingUrl,
+    });
+    sendEmail({
+      to: parsed.data.submitterEmail,
+      subject: tpl.subject,
+      html: tpl.html,
+    }).catch((err) => console.error("[invoices] email error:", err));
 
     return NextResponse.json({
       ok: true,

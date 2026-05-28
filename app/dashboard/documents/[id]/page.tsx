@@ -1,197 +1,142 @@
-"use client";
+import Link from "next/link";
+import { redirect, notFound } from "next/navigation";
+import { createClient as createSupabaseServiceClient } from "@supabase/supabase-js";
+import { createClient as createSupabaseServerClient } from "@/lib/supabase/server";
+import AdminNav from "@/components/AdminNav";
+import StatusBadge from "@/components/StatusBadge";
+import DetailRow from "@/components/DetailRow";
+import DocumentStatusActions from "./DocumentStatusActions";
+import DocFileButton from "./DocFileButton";
 
-import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+type PageProps = { params: Promise<{ id: string }> };
 
-type DocRecord = {
-  id: string;
-  company_name: string;
-  contact_name: string;
-  submitter_email: string;
-  document_types: string;
-  file_paths: string;
-  status: string;
-  admin_notes: string | null;
-  uploaded_at: string;
-};
-
-const STATUS_OPTIONS = [
-  { value: "pending_review", label: "Pending Review" },
-  { value: "approved", label: "Approved" },
-  { value: "rejected", label: "Rejected" },
-  { value: "missing_info", label: "Missing Info Needed" },
-];
-
-const FILE_LABELS: Record<string, string> = {
+const FIELD_LABELS: Record<string, string> = {
   w9File: "W-9",
   coiFile: "COI",
   einFile: "EIN Letter",
   licenseFile: "Business License",
 };
 
-export default function AdminDocumentReviewPage() {
-  const params = useParams();
-  const router = useRouter();
-  const id = params?.id as string;
+function createServiceClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) throw new Error("Missing env vars");
+  return createSupabaseServiceClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
 
-  const [doc, setDoc] = useState<DocRecord | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [status, setStatus] = useState("");
-  const [notes, setNotes] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [error, setError] = useState("");
+function formatDate(v: string | null | undefined) {
+  if (!v) return "—";
+  const d = new Date(v);
+  if (isNaN(d.getTime())) return v;
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
 
-  useEffect(() => {
-    fetch(`/api/admin/documents/${id}`)
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.document) {
-          setDoc(data.document);
-          setStatus(data.document.status);
-          setNotes(data.document.admin_notes || "");
-        }
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
-  }, [id]);
+export default async function DocumentReviewPage({ params }: PageProps) {
+  const { id } = await params;
 
-  async function handleSave() {
-    setSaving(true);
-    setSaved(false);
-    setError("");
-    try {
-      const res = await fetch(`/api/documents/${id}/status`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status, admin_notes: notes }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Save failed");
-      setSaved(true);
-      setTimeout(() => setSaved(false), 3000);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Error saving");
-    } finally {
-      setSaving(false);
-    }
-  }
+  const authClient = await createSupabaseServerClient();
+  const { data: { user } } = await authClient.auth.getUser();
+  const adminEmail = process.env.ADMIN_EMAIL;
+  if (!user || !adminEmail || user.email !== adminEmail) redirect("/admin-login");
 
-  const fileList: { field: string; name: string; path: string }[] = (() => {
-    try { return JSON.parse(doc?.file_paths || "[]"); }
-    catch { return []; }
-  })();
+  const service = createServiceClient();
+  const { data: doc, error } = await service
+    .from("documents")
+    .select(
+      "id, company_name, contact_name, submitter_email, document_types, file_paths, status, admin_notes, uploaded_at, tracking_token"
+    )
+    .eq("id", id)
+    .single();
 
-  if (loading) {
-    return (
-      <main className="min-h-screen flex items-center justify-center">
-        <p className="text-gray-400">Loading...</p>
-      </main>
-    );
-  }
+  if (error || !doc) notFound();
 
-  if (!doc) {
-    return (
-      <main className="min-h-screen flex items-center justify-center">
-        <p className="text-red-500">Document not found.</p>
-      </main>
-    );
+  let files: { field: string; name: string; size?: number }[] = [];
+  try {
+    files = JSON.parse(doc.file_paths || "[]");
+  } catch {
+    files = [];
   }
 
   return (
-    <main className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-2xl mx-auto">
-        <button
-          onClick={() => router.push("/dashboard")}
-          className="text-sm text-blue-600 hover:underline mb-4 inline-block"
-        >
-          &larr; Back to Dashboard
-        </button>
+    <div className="min-h-screen">
+      <AdminNav email={user.email!} backToDashboard />
 
-        <div className="bg-white rounded-2xl shadow-sm p-6 mb-6">
-          <h1 className="text-xl font-bold text-gray-800 mb-4">Document Review</h1>
-          <div className="space-y-2 text-sm">
-            <div className="flex justify-between">
-              <span className="text-gray-500">Company</span>
-              <span className="font-medium">{doc.company_name}</span>
+      <main className="px-4 sm:px-6 py-7 pb-16">
+        <div className="max-w-6xl mx-auto">
+          <div className="flex items-start justify-between gap-4 mb-6">
+            <div>
+              <div className="text-2xs font-bold tracking-eyebrow uppercase text-gol-green mb-1">
+                Document Review
+              </div>
+              <h1 className="text-xl sm:text-2xl font-bold text-gol-dark">
+                {doc.company_name}
+              </h1>
+              <p className="text-sm text-gol-muted mt-1">
+                {doc.contact_name} · Submitted {formatDate(doc.uploaded_at)}
+              </p>
             </div>
-            <div className="flex justify-between">
-              <span className="text-gray-500">Contact</span>
-              <span className="font-medium">{doc.contact_name}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-500">Email</span>
-              <span className="font-medium">{doc.submitter_email}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-500">Documents</span>
-              <span className="font-medium">{doc.document_types}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-500">Submitted</span>
-              <span className="font-medium">{new Date(doc.uploaded_at).toLocaleString()}</span>
+            <div className="flex-shrink-0">
+              <StatusBadge status={doc.status} size="lg" />
             </div>
           </div>
-        </div>
 
-        {fileList.length > 0 && (
-          <div className="bg-white rounded-2xl shadow-sm p-6 mb-6">
-            <h2 className="text-base font-semibold text-gray-700 mb-3">Uploaded Files</h2>
-            <ul className="space-y-2">
-              {fileList.map((f, i) => (
-                <li key={i} className="flex items-center justify-between text-sm">
-                  <span className="font-medium text-gray-700">{FILE_LABELS[f.field] ?? f.field}: <span className="text-gray-500 font-normal">{f.name}</span></span>
-                  <a
-                    href={`/api/documents/${doc.id}/file?field=${f.field}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-600 hover:underline text-xs"
-                  >
-                    View File
-                  </a>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
+            <div className="lg:col-span-3 space-y-5">
+              <section className="bg-white border border-gol-border rounded-card shadow-card p-6">
+                <h2 className="text-base font-semibold text-gol-dark mb-4">Submission Details</h2>
+                <DetailRow label="Company" value={doc.company_name} />
+                <DetailRow label="Contact" value={doc.contact_name} />
+                <DetailRow label="Email" value={doc.submitter_email} />
+                <DetailRow label="Documents" value={doc.document_types} />
+                <DetailRow label="Submitted" value={formatDate(doc.uploaded_at)} isLast />
+              </section>
 
-        <div className="bg-white rounded-2xl shadow-sm p-6">
-          <h2 className="text-base font-semibold text-gray-700 mb-4">Update Status</h2>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-600 mb-1">Status</label>
-              <select
-                value={status}
-                onChange={(e) => setStatus(e.target.value)}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-              >
-                {STATUS_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
+              <section className="bg-white border border-gol-border rounded-card shadow-card p-6">
+                <h2 className="text-base font-semibold text-gol-dark mb-4">Uploaded Files</h2>
+                {files.length > 0 ? (
+                  <div className="divide-y divide-gray-50">
+                    {files.map((f, i) => (
+                      <div key={i} className="flex items-center justify-between py-3 first:pt-0 last:pb-0">
+                        <div>
+                          <div className="text-sm font-semibold text-gol-dark">
+                            {FIELD_LABELS[f.field] ?? f.field}
+                            <span className="ml-2 font-normal text-gol-muted">{f.name}</span>
+                          </div>
+                        </div>
+                        <DocFileButton docId={id} field={f.field} />
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-gol-muted">No files attached.</p>
+                )}
+
+                {doc.tracking_token && (
+                  <div className="mt-4 pt-4 border-t border-gray-100">
+                    <p className="text-xs text-gol-muted mb-1">Subcontractor tracking link:</p>
+                    <Link
+                      href={`/document-status/${doc.tracking_token}`}
+                      className="text-xs font-semibold text-gol-green hover:text-gol-green-dark break-all"
+                    >
+                      /document-status/{doc.tracking_token}
+                    </Link>
+                  </div>
+                )}
+              </section>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-600 mb-1">Admin Notes (optional)</label>
-              <textarea
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                rows={3}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm resize-none"
-                placeholder="Notes visible to subcontractor on tracking page..."
+
+            <div className="lg:col-span-2">
+              <DocumentStatusActions
+                docId={id}
+                currentStatus={doc.status}
+                currentNotes={doc.admin_notes || ""}
               />
             </div>
-            {error && <p className="text-red-600 text-sm">{error}</p>}
-            {saved && <p className="text-green-600 text-sm">Status saved successfully.</p>}
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold rounded-xl text-sm transition"
-            >
-              {saving ? "Saving..." : "Save Changes"}
-            </button>
           </div>
         </div>
-      </div>
-    </main>
+      </main>
+    </div>
   );
 }

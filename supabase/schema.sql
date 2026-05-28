@@ -1,19 +1,26 @@
--- Gol Homes Portal free-first Supabase schema
+-- ============================================================================
+-- Gol Homes Portal — Supabase schema (consolidated, idempotent)
+-- ----------------------------------------------------------------------------
+-- This file is the canonical schema for the Gol Homes Subcontractor Portal,
+-- consolidated from the original starter + the columns added live in the
+-- Supabase dashboard for the public-no-account flow.
+--
+-- Safe to re-run: every `create table` is `if not exists`, every `alter table`
+-- adds columns with `if not exists`.
+--
+-- Order of operations for a NEW Supabase project:
+--   1. Run this file (supabase/schema.sql).
+--   2. Run supabase/proposals-migration.sql.
+--   3. Create a PRIVATE storage bucket named `portal-files`.
+--   4. Add the env vars from .env.example to Vercel.
+-- ============================================================================
+
 create extension if not exists "uuid-ossp";
 
-create table if not exists profiles (
-  id uuid primary key default uuid_generate_v4(),
-  auth_user_id uuid unique,
-  email text unique not null,
-  role text not null default 'subcontractor' check (role in ('admin', 'reviewer', 'read_only', 'subcontractor')),
-  company_name text,
-  contact_name text,
-  phone text,
-  trade text,
-  is_active boolean not null default true,
-  created_at timestamptz not null default now()
-);
-
+-- ----------------------------------------------------------------------------
+-- projects
+--   Populates the Project dropdown on invoice and proposal forms.
+-- ----------------------------------------------------------------------------
 create table if not exists projects (
   id uuid primary key default uuid_generate_v4(),
   project_name text not null,
@@ -29,22 +36,9 @@ insert into projects (project_name, project_address) values
   ('5914 Woodley', '5914 Woodley')
 on conflict do nothing;
 
-create table if not exists cost_codes (
-  id uuid primary key default uuid_generate_v4(),
-  cost_code text,
-  category text not null,
-  description text,
-  is_active boolean not null default true,
-  created_at timestamptz not null default now()
-);
-
-insert into cost_codes (cost_code, category, description) values
-  ('TBD', 'Brick Material', 'Placeholder pending Sajed confirmation'),
-  ('TBD', 'Electrical', 'Placeholder pending Sajed confirmation'),
-  ('TBD', 'Plumbing', 'Placeholder pending Sajed confirmation'),
-  ('TBD', 'Framing', 'Placeholder pending Sajed confirmation')
-on conflict do nothing;
-
+-- ----------------------------------------------------------------------------
+-- invoices
+-- ----------------------------------------------------------------------------
 create table if not exists invoices (
   id uuid primary key default uuid_generate_v4(),
   project_name text not null,
@@ -54,17 +48,54 @@ create table if not exists invoices (
   invoice_number text,
   invoice_date date not null,
   lien_waiver_accepted boolean not null default false,
-  invoice_status text not null default 'pending_review' check (invoice_status in ('pending_review', 'incomplete', 'approved', 'rejected', 'paid')),
+  invoice_status text not null default 'pending_review'
+    check (invoice_status in ('pending_review', 'incomplete', 'approved', 'rejected', 'paid')),
   file_path text,
-  ai_extraction_status text not null default 'not_processed' check (ai_extraction_status in ('not_processed', 'processed', 'needs_review', 'approved')),
   submitted_at timestamptz not null default now(),
   reviewed_at timestamptz,
-  reviewed_by uuid,
   approved_at timestamptz,
   paid_at timestamptz,
   notes text
 );
 
+-- Columns added live for the public-no-account flow:
+alter table invoices add column if not exists submitter_email text;
+alter table invoices add column if not exists tracking_token text;
+alter table invoices add column if not exists original_file_name text;
+alter table invoices add column if not exists file_size bigint;
+alter table invoices add column if not exists reviewed_by_email text;
+alter table invoices add column if not exists admin_notes text;
+
+create unique index if not exists invoices_tracking_token_uidx on invoices (tracking_token);
+create index if not exists invoices_status_idx on invoices (invoice_status);
+create index if not exists invoices_submitted_at_idx on invoices (submitted_at desc);
+
+-- ----------------------------------------------------------------------------
+-- documents (W-9 / COI / EIN / business license)
+-- ----------------------------------------------------------------------------
+create table if not exists documents (
+  id uuid primary key default uuid_generate_v4(),
+  company_name text not null,
+  contact_name text not null,
+  submitter_email text not null,
+  document_types text not null,
+  file_paths text not null,
+  status text not null default 'pending_review'
+    check (status in ('pending_review', 'approved', 'rejected', 'missing_info')),
+  tracking_token text unique not null,
+  admin_notes text,
+  reviewed_by text,
+  uploaded_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists documents_tracking_token_idx on documents (tracking_token);
+create index if not exists documents_status_idx on documents (status);
+create index if not exists documents_uploaded_at_idx on documents (uploaded_at desc);
+
+-- ----------------------------------------------------------------------------
+-- audit_logs (reserved for future use)
+-- ----------------------------------------------------------------------------
 create table if not exists audit_logs (
   id uuid primary key default uuid_generate_v4(),
   user_id uuid,
@@ -77,17 +108,32 @@ create table if not exists audit_logs (
   created_at timestamptz not null default now()
 );
 
-alter table profiles enable row level security;
+-- ============================================================================
+-- Row Level Security
+-- ----------------------------------------------------------------------------
+-- The anon key is never used for user-facing reads or writes that touch
+-- private data. All public form posts and tracking page reads run through
+-- API routes using SUPABASE_SERVICE_ROLE_KEY, which bypasses RLS. RLS is
+-- enabled with no policies so the anon key cannot read private rows.
+-- ============================================================================
 alter table projects enable row level security;
-alter table cost_codes enable row level security;
 alter table invoices enable row level security;
+alter table documents enable row level security;
 alter table audit_logs enable row level security;
 
-create policy "Authenticated users can view active projects" on projects for select to authenticated using (is_active = true);
-create policy "Authenticated users can view cost codes" on cost_codes for select to authenticated using (is_active = true);
-create policy "Authenticated users can insert invoices" on invoices for insert to authenticated with check (true);
-create policy "Authenticated users can view invoices in prototype" on invoices for select to authenticated using (true);
+do $$
+begin
+  if not exists (select 1 from pg_policies where polname = 'projects_public_read') then
+    create policy projects_public_read on projects for select using (true);
+  end if;
+end$$;
 
--- Storage bucket creation in Supabase dashboard:
--- Bucket name: portal-files
--- Public bucket: OFF
+-- ============================================================================
+-- Storage bucket reminder:
+--   Create a PRIVATE bucket named `portal-files` from the Supabase dashboard.
+--   File paths used by the app:
+--     invoices/<safeProject>/<safeCompany>/<timestamp>-<filename>
+--     documents/<safeCompany>/<field>/<timestamp>-<filename>
+--     proposals/<safeCompany>/<timestamp>-<index>-<filename>
+--   Files are only ever served through admin-only 60-second signed URLs.
+-- ============================================================================

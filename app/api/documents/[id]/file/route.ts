@@ -3,11 +3,10 @@ import { createClient } from "@supabase/supabase-js";
 import { createClient as createServerClient } from "@/lib/supabase/server";
 
 function createServiceClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) throw new Error("Missing env vars");
+  return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
 }
 
 export async function GET(
@@ -15,19 +14,17 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  // Admin only
-  const supabase = await createServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  const adminEmail = process.env.ADMIN_EMAIL;
 
+  const supabase = await createServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  const adminEmail = process.env.ADMIN_EMAIL;
   if (!user || !adminEmail || user.email !== adminEmail) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const { searchParams } = new URL(request.url);
   const field = searchParams.get("field");
+
   const service = createServiceClient();
   const { data: doc, error } = await service
     .from("documents")
@@ -40,10 +37,12 @@ export async function GET(
   }
 
   let filePath: string | null = null;
+  let originalName: string | null = null;
   try {
-    const files: { field: string; path: string }[] = JSON.parse(doc.file_paths);
+    const files: { field: string; path: string; name?: string }[] = JSON.parse(doc.file_paths);
     const match = field ? files.find((f) => f.field === field) : files[0];
     filePath = match?.path ?? null;
+    originalName = match?.name ?? null;
   } catch {
     return NextResponse.json({ error: "Invalid file data" }, { status: 500 });
   }
@@ -54,7 +53,7 @@ export async function GET(
 
   const { data: signedUrl, error: signError } = await service.storage
     .from("portal-files")
-    .createSignedUrl(filePath, 300);
+    .createSignedUrl(filePath, 60);
 
   if (signError || !signedUrl) {
     return NextResponse.json(
@@ -63,5 +62,5 @@ export async function GET(
     );
   }
 
-  return NextResponse.json({ url: signedUrl.signedUrl });
+  return NextResponse.json({ url: signedUrl.signedUrl, fileName: originalName });
 }

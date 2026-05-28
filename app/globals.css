@@ -1,4 +1,52 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-html, body { background: #f6f7f4; color: #111827; }
+
+@import url("https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700;800&display=swap");
+
+html,
+body {
+  background-color: #f4f5f2;
+  color: #111827;
+  font-family: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui,
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+@layer utilities {
+  .focus-ring {
+    @apply focus:outline-none focus-visible:ring-2 focus-visible:ring-gol-green focus-visible:ring-offset-2 focus-visible:ring-offset-gol-soft;
+  }
+}
+
+/* Shared form input style used by the invoice, documents, and proposal forms */
+@layer components {
+  .form-input {
+    @apply w-full px-3.5 py-2.5 border border-gol-border rounded-xl text-sm text-gol-dark bg-white;
+    @apply outline-none transition-colors;
+  }
+  .form-input:focus {
+    border-color: #1a6b47;
+    box-shadow: 0 0 0 3px rgba(26, 107, 71, 0.12);
+  }
+}
+
+input[type="file"] {
+  font-family: inherit;
+}
+input[type="file"]::file-selector-button {
+  margin-right: 0.75rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: 0.5rem;
+  border: 0;
+  background: #e8f5ee;
+  color: #145538;
+  font-weight: 600;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+input[type="file"]::file-selector-button:hover {
+  background: #d3ebde;
+}

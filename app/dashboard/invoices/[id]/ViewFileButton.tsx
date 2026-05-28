@@ -2,33 +2,49 @@
 
 import { useState } from "react";
 
-export default function ViewFileButton({ invoiceId, fileName }: { invoiceId: string; fileName?: string }) {
+export default function ViewFileButton({
+  invoiceId,
+  fileName,
+}: {
+  invoiceId: string;
+  fileName?: string;
+}) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function openFile() {
     setLoading(true);
     setError(null);
-    const res = await fetch(`/api/invoices/${invoiceId}/file`);
-    const data = await res.json();
-    setLoading(false);
-    if (!res.ok || !data.url) {
-      setError(data.error || "Could not load file.");
-      return;
+    try {
+      const res = await fetch(`/api/invoices/${invoiceId}/file`);
+      const data = await res.json();
+      if (!res.ok || !data.url) {
+        setError(data.error || "Could not load file.");
+        return;
+      }
+      window.open(data.url, "_blank", "noopener,noreferrer");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load file.");
+    } finally {
+      setLoading(false);
     }
-    window.open(data.url, "_blank", "noopener,noreferrer");
   }
 
   return (
-    <div className="mt-3">
+    <div className="text-right">
       <button
         onClick={openFile}
         disabled={loading}
-        className="inline-flex items-center gap-2 rounded-lg border border-gol-green text-gol-green font-semibold px-4 py-2 text-sm hover:bg-green-50 transition disabled:opacity-50"
+        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-gol-green text-gol-green text-xs font-semibold hover:bg-gol-green-light transition-colors disabled:opacity-60 focus-ring"
       >
-        {loading ? "Loading..." : `📄 View Invoice File${fileName ? ` — ${fileName}` : ""}`}
+        {loading ? "Loading…" : "📄 View File"}
       </button>
-      {error && <p className="mt-1 text-sm text-red-500">{error}</p>}
+      {fileName && (
+        <div className="text-[11px] text-gol-muted mt-1 truncate max-w-[200px]">
+          {fileName}
+        </div>
+      )}
+      {error && <p className="text-xs text-red-600 mt-1">{error}</p>}
     </div>
   );
 }

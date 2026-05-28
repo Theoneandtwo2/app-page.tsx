@@ -1,39 +1,33 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
+import BrandHeader from "@/components/BrandHeader";
+import DetailRow from "@/components/DetailRow";
+import { StatusHero } from "@/components/StatusBadge";
 
-type PageProps = {
-  params: Promise<{
-    trackingToken: string;
-  }>;
-};
+type PageProps = { params: Promise<{ trackingToken: string }> };
 
 function createServiceClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!supabaseUrl || !serviceRoleKey) {
-    throw new Error("Missing Supabase server environment variables");
-  }
-
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-    },
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) throw new Error("Missing Supabase env vars");
+  return createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
   });
 }
 
-function formatStatus(status: string) {
-  const labels: Record<string, string> = {
-    pending_review: "Pending Review",
-    incomplete: "Incomplete",
-    approved: "Approved",
-    rejected: "Rejected",
-    paid: "Paid",
-  };
+function formatMoney(value: string | number | null | undefined) {
+  if (value == null) return "—";
+  const num = typeof value === "string" ? parseFloat(value) : value;
+  if (isNaN(num)) return String(value);
+  return num.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2 });
+}
 
-  return labels[status] || status;
+function formatDate(value: string | null | undefined) {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return value;
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
 export default async function InvoiceStatusPage({ params }: PageProps) {
@@ -43,84 +37,66 @@ export default async function InvoiceStatusPage({ params }: PageProps) {
   const { data: invoice, error } = await supabase
     .from("invoices")
     .select(
-      "project_name, company_name, contact_name, invoice_amount, invoice_number, invoice_date, invoice_status, submitted_at"
+      "project_name, company_name, contact_name, invoice_amount, invoice_number, invoice_date, invoice_status, submitted_at, admin_notes"
     )
     .eq("tracking_token", trackingToken)
     .single();
 
-  if (error || !invoice) {
-    notFound();
-  }
+  if (error || !invoice) notFound();
 
   return (
-    <main className="min-h-screen flex items-center justify-center p-6">
-      <section className="max-w-2xl w-full bg-white border rounded-2xl shadow-sm p-8">
-        <p className="text-sm uppercase tracking-wide text-gol-green font-semibold">
-          Gol Homes Development LLC
-        </p>
+    <main className="min-h-screen px-4 pt-10 pb-16 sm:pt-14">
+      <div className="max-w-md mx-auto">
+        <BrandHeader />
 
-        <h1 className="text-3xl font-bold mt-3">Invoice Status</h1>
+        <section className="bg-white border border-gol-border rounded-card shadow-card p-6 sm:p-8">
+          <div className="text-2xs font-bold tracking-eyebrow uppercase text-gol-green mb-1">
+            Invoice Tracking
+          </div>
+          <h1 className="text-xl sm:text-2xl font-bold text-gol-dark mb-2">Invoice Status</h1>
+          <p className="text-sm text-gol-muted leading-relaxed mb-5">
+            This private page shows the current review status for your submitted invoice.
+          </p>
 
-        <p className="text-gray-600 mt-3">
-          This private status page shows the current review status for your submitted
-          invoice.
-        </p>
+          <StatusHero status={invoice.invoice_status} />
 
-        <div className="mt-6 rounded-xl border overflow-hidden">
-          <div className="grid grid-cols-1 sm:grid-cols-2 border-b">
-            <div className="p-4 bg-gray-50 font-medium">Status</div>
-            <div className="p-4">
-              <span className="rounded-full bg-yellow-100 text-yellow-800 px-3 py-1 text-sm">
-                {formatStatus(invoice.invoice_status)}
-              </span>
+          <div className="bg-white rounded-2xl border border-gray-100 px-4 py-2 mb-5">
+            <DetailRow label="Invoice #" value={invoice.invoice_number || "—"} />
+            <DetailRow label="Company" value={invoice.company_name} />
+            <DetailRow label="Project" value={invoice.project_name} />
+            <DetailRow
+              label="Amount"
+              value={formatMoney(invoice.invoice_amount)}
+              valueClassName="text-base font-bold"
+            />
+            <DetailRow label="Invoice Date" value={formatDate(invoice.invoice_date)} />
+            <DetailRow label="Submitted" value={formatDate(invoice.submitted_at)} isLast />
+          </div>
+
+          {invoice.admin_notes && (
+            <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 mb-5">
+              <div className="text-2xs font-bold tracking-eyebrow uppercase text-blue-800 mb-1">
+                📝 Notes from Gol Homes
+              </div>
+              <p className="text-sm text-blue-900 leading-relaxed whitespace-pre-line">
+                {invoice.admin_notes}
+              </p>
             </div>
-          </div>
+          )}
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 border-b">
-            <div className="p-4 bg-gray-50 font-medium">Company</div>
-            <div className="p-4">{invoice.company_name}</div>
-          </div>
+          <p className="text-xs text-gol-muted leading-relaxed mb-5">
+            Keep this link for your records. You will also receive an email
+            notification when the status changes.
+          </p>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 border-b">
-            <div className="p-4 bg-gray-50 font-medium">Project</div>
-            <div className="p-4">{invoice.project_name}</div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 border-b">
-            <div className="p-4 bg-gray-50 font-medium">Invoice #</div>
-            <div className="p-4">{invoice.invoice_number || "—"}</div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 border-b">
-            <div className="p-4 bg-gray-50 font-medium">Amount</div>
-            <div className="p-4">${invoice.invoice_amount}</div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 border-b">
-            <div className="p-4 bg-gray-50 font-medium">Invoice Date</div>
-            <div className="p-4">{invoice.invoice_date}</div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2">
-            <div className="p-4 bg-gray-50 font-medium">Submitted</div>
-            <div className="p-4">
-              {new Date(invoice.submitted_at).toLocaleString()}
-            </div>
-          </div>
-        </div>
-
-        <p className="text-sm text-gray-500 mt-5">
-          Keep this link for your records. Gol Homes will update the invoice status
-          after review.
-        </p>
-
-        <Link
-          href="/"
-          className="inline-block mt-6 rounded-lg bg-gol-green text-white px-4 py-2"
-        >
-          Back to portal
-        </Link>
-      </section>
+          <Link
+            href="/"
+            className="inline-flex items-center justify-center px-4 py-2 rounded-xl bg-gol-green text-white text-xs font-semibold hover:bg-gol-green-dark transition-colors focus-ring"
+          >
+            Back to portal
+          </Link>
+        </section>
+      </div>
     </main>
   );
 }

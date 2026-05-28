@@ -1,28 +1,22 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
-import { Resend } from "resend";
 import crypto from "crypto";
+import { sendEmail } from "@/lib/email/send";
+import { documentReceivedTemplate } from "@/lib/email/templates";
 
 const documentSchema = z.object({
   companyName: z.string().min(1),
   contactName: z.string().min(1),
   submitterEmail: z.string().email(),
-  documentTypes: z.string().min(1), // comma-separated list
+  documentTypes: z.string().min(1),
 });
 
 function createServiceClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!supabaseUrl || !serviceRoleKey) {
-    throw new Error("Missing Supabase server environment variables");
-  }
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-    },
-  });
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) throw new Error("Missing Supabase server environment variables");
+  return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
 }
 
 function getAppUrl(request: Request) {
@@ -33,14 +27,13 @@ function getAppUrl(request: Request) {
 export async function POST(request: Request) {
   try {
     const supabase = createServiceClient();
-    const resend = new Resend(process.env.RESEND_API_KEY);
-    const formData = await request.formData();
+    const fd = await request.formData();
 
     const parsed = documentSchema.safeParse({
-      companyName: formData.get("companyName"),
-      contactName: formData.get("contactName"),
-      submitterEmail: formData.get("submitterEmail"),
-      documentTypes: formData.get("documentTypes"),
+      companyName: fd.get("companyName"),
+      contactName: fd.get("contactName"),
+      submitterEmail: fd.get("submitterEmail"),
+      documentTypes: fd.get("documentTypes"),
     });
 
     if (!parsed.success) {
@@ -50,35 +43,40 @@ export async function POST(request: Request) {
       );
     }
 
-    // Collect uploaded files (w9, coi, ein, license)
     const fileFields = ["w9File", "coiFile", "einFile", "licenseFile"];
-    const uploadedFiles: { field: string; path: string; name: string; size: number }[] = [];
+    const uploaded: { field: string; path: string; name: string; size: number }[] = [];
 
     const safeCompany = parsed.data.companyName.replace(/[^a-z0-9_-]/gi, "_");
     const trackingToken = crypto.randomBytes(32).toString("hex");
 
     for (const field of fileFields) {
-      const file = formData.get(field);
+      const file = fd.get(field);
       if (file instanceof File && file.size > 0) {
-        const filePath = `documents/${safeCompany}/${field}/${Date.now()}-${file.name}`;
-        const { error: uploadError } = await supabase.storage
+        const path = `documents/${safeCompany}/${field}/${Date.now()}-${file.name}`;
+        const { error: upErr } = await supabase.storage
           .from("portal-files")
-          .upload(filePath, file, {
+          .upload(path, file, {
             cacheControl: "3600",
             upsert: false,
             contentType: file.type || "application/octet-stream",
           });
-        if (uploadError) {
+        if (upErr) {
+          if (uploaded.length > 0) {
+            await supabase.storage
+              .from("portal-files")
+              .remove(uploaded.map((u) => u.path))
+              .catch(() => {});
+          }
           return NextResponse.json(
-            { error: `Upload failed for ${field}: ${uploadError.message}` },
+            { error: `Upload failed for ${field}: ${upErr.message}` },
             { status: 500 }
           );
         }
-        uploadedFiles.push({ field, path: filePath, name: file.name, size: file.size });
+        uploaded.push({ field, path, name: file.name, size: file.size });
       }
     }
 
-    if (uploadedFiles.length === 0) {
+    if (uploaded.length === 0) {
       return NextResponse.json(
         { error: "At least one document file is required" },
         { status: 400 }
@@ -92,7 +90,7 @@ export async function POST(request: Request) {
         contact_name: parsed.data.contactName,
         submitter_email: parsed.data.submitterEmail,
         document_types: parsed.data.documentTypes,
-        file_paths: JSON.stringify(uploadedFiles),
+        file_paths: JSON.stringify(uploaded),
         status: "pending_review",
         tracking_token: trackingToken,
         uploaded_at: new Date().toISOString(),
@@ -101,6 +99,10 @@ export async function POST(request: Request) {
       .single();
 
     if (insertError) {
+      await supabase.storage
+        .from("portal-files")
+        .remove(uploaded.map((u) => u.path))
+        .catch(() => {});
       return NextResponse.json(
         { error: `DB insert failed: ${insertError.message}` },
         { status: 500 }
@@ -110,25 +112,14 @@ export async function POST(request: Request) {
     const appUrl = getAppUrl(request);
     const trackingUrl = `${appUrl}/document-status/${trackingToken}`;
 
-    if (process.env.RESEND_API_KEY) {
-      await resend.emails.send({
-        from: "Gol Homes Portal <portal@golhomes.com>",
-        to: parsed.data.submitterEmail,
-        subject: "Gol Homes — Documents Received",
-        html: `
-          <h2>Supporting Documents Received</h2>
-          <p>Hi ${parsed.data.contactName},</p>
-          <p>Gol Homes has received your supporting documents.</p>
-          <p><strong>Company:</strong> ${parsed.data.companyName}</p>
-          <p><strong>Documents submitted:</strong> ${parsed.data.documentTypes}</p>
-          <p><strong>Status:</strong> Pending Review</p>
-          <p>Track your submission status here:<br/>
-          <a href="${trackingUrl}">${trackingUrl}</a></p>
-          <p>Please save this link for your records.</p>
-          <p>Gol Homes Development LLC</p>
-        `,
-      });
-    }
+    const tpl = documentReceivedTemplate({
+      contactName: parsed.data.contactName,
+      companyName: parsed.data.companyName,
+      documentTypes: parsed.data.documentTypes,
+      trackingUrl,
+    });
+    sendEmail({ to: parsed.data.submitterEmail, subject: tpl.subject, html: tpl.html })
+      .catch((err) => console.error("[documents] email error:", err));
 
     return NextResponse.json({
       ok: true,
