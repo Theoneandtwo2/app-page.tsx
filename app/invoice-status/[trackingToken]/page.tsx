@@ -38,7 +38,9 @@ function formatStatus(status: string) {
 
 export default async function InvoiceStatusPage({ params }: PageProps) {
   const { trackingToken } = await params;
+    console.log("INVOICE_STATUS_DEBUG token", trackingToken);
   const supabase = createServiceClient();
+    console.log("INVOICE_STATUS_DEBUG supabase url", process.env.NEXT_PUBLIC_SUPABASE_URL);
 
   const { data: invoice, error } = await supabase
     .from("invoices")
@@ -47,6 +49,7 @@ export default async function InvoiceStatusPage({ params }: PageProps) {
     )
     .eq("tracking_token", trackingToken)
     .single();
+    console.log("INVOICE_STATUS_DEBUG result", { invoice, error });
 
   if (error || !invoice) {
     notFound();
