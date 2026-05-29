@@ -123,7 +123,7 @@ export async function POST(request: Request) {
 
     if (process.env.RESEND_API_KEY) {
       await resend.emails.send({
-        from: "Gol Homes Portal <onboarding@resend.dev>",
+        from: "Gol Homes Portal <portal@golhomes.com>",
         to: parsed.data.submitterEmail,
         subject: "Gol Homes — Invoice Received",
         html: `
